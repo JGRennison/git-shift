@@ -39,7 +39,7 @@ use Time::Local;
 use Time::Piece 1.16;	# timezone support is required
 use Time::Seconds;
 
-my($opt_v, $opt_n, $opt_k);
+my($opt_v, $opt_n, $opt_c, $opt_a, $opt_k);
 my $exit_status = 0;
 
 sub usage {
@@ -48,6 +48,8 @@ usage: git shift [options] {[<time>][<timediff>][timezone]|<datetime>} <rev-list
 
     -v, --verbose         be verbose
     -n, --dry-run         dry run
+    -c, --commit-time     only change commit time
+    -a, --author-time     only change author time
     -k                    skip errors
 
     <timediff>            add this time span to current commit time(s)
@@ -83,11 +85,19 @@ sub main {
     GetOptions("h|help"    => sub { usage(); exit },
                "v|verbose" => \$opt_v,
                "n|dry-run" => \$opt_n,
+               "c|commit-time" => \$opt_c,
+               "a|author-time" => \$opt_a,
                "k"         => \$opt_k) or exit 64;
     pop @ARGV if @ARGV && $ARGV[$#ARGV] eq '--';
     $opt_v = 1  if $opt_n;
 
     if (!@ARGV) {
+        usage();
+        exit 129;
+    }
+
+    if ($opt_c && $opt_a) {
+        print STDERR "$0: cannot use both -c and -a.\n";
         usage();
         exit 129;
     }
@@ -154,7 +164,12 @@ sub git_shift {
         my($atime, $atz, $ctime, $ctz) = @{$rev_info{$rev}};
         my $changed;
         if (exists($revs{$rev})) {
-            my($ntime, $ntz) = $function->($atime, $atz);
+            my($ntime, $ntz);
+            if ($opt_c) {
+                ($ntime, $ntz) = $function->($ctime, $ctz);
+            } else {
+                ($ntime, $ntz) = $function->($atime, $atz);
+            }
 
             my($atimestr, $ctimestr, $ntimestr) = map {
                 stringify_git_time(@$_);
@@ -164,8 +179,16 @@ sub git_shift {
             print "CommitDate: $ctimestr\n";
             print "         => $ntimestr\n";
 
-            $atime = $ctime = $ntime;
-            $atz   = $ctz   = $ntz;
+            if ($opt_c) {
+                $ctime = $ntime;
+                $ctz   = $ntz;
+            } elsif ($opt_a) {
+                $atime = $ntime;
+                $atz   = $ntz;
+            } else {
+                $atime = $ctime = $ntime;
+                $atz   = $ctz   = $ntz;
+            }
             $changed = 1;
         }
 
