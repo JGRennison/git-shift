@@ -39,7 +39,7 @@ use Time::Local;
 use Time::Piece 1.16;	# timezone support is required
 use Time::Seconds;
 
-my($opt_v, $opt_n, $opt_c, $opt_a, $opt_k);
+my($opt_v, $opt_dryrun, $opt_commit_only, $opt_author_only, $opt_skip_errors);
 my $exit_status = 0;
 
 sub usage {
@@ -48,8 +48,8 @@ usage: git shift [options] {[<time>][<timediff>][timezone]|<datetime>} <rev-list
 
     -v, --verbose         be verbose
     -n, --dry-run         dry run
-    -c, --commit-time     only change commit time
     -a, --author-time     only change author time
+    -c, --commit-time     only change commit time
     -k                    skip errors
 
     <timediff>            add this time span to current commit time(s)
@@ -82,21 +82,21 @@ EOS
 
 sub main {
     Getopt::Long::Configure qw(no_getopt_compat require_order pass_through);
-    GetOptions("h|help"    => sub { usage(); exit },
-               "v|verbose" => \$opt_v,
-               "n|dry-run" => \$opt_n,
-               "c|commit-time" => \$opt_c,
-               "a|author-time" => \$opt_a,
-               "k"         => \$opt_k) or exit 64;
+    GetOptions("h|help"        => sub { usage(); exit },
+               "v|verbose"     => \$opt_v,
+               "n|dry-run"     => \$opt_dryrun,
+               "c|commit-time" => \$opt_commit_only,
+               "a|author-time" => \$opt_author_only,
+               "k"             => \$opt_skip_errors) or exit 64;
     pop @ARGV if @ARGV && $ARGV[$#ARGV] eq '--';
-    $opt_v = 1  if $opt_n;
+    $opt_v = 1  if $opt_dryrun;
 
     if (!@ARGV) {
         usage();
         exit 129;
     }
 
-    if ($opt_c && $opt_a) {
+    if ($opt_commit_only && $opt_author_only) {
         print STDERR "$0: cannot use both -c and -a.\n";
         usage();
         exit 129;
@@ -118,7 +118,7 @@ sub main {
 
 sub may_exit {
     my($status) = @_ ? @_ : ($? >> 8);
-    exit $status unless $opt_k;
+    exit $status unless $opt_skip_errors;
     $exit_status = $status;
 }
 
@@ -165,7 +165,7 @@ sub git_shift {
         my $changed;
         if (exists($revs{$rev})) {
             my($ntime, $ntz);
-            if ($opt_c) {
+            if ($opt_commit_only) {
                 ($ntime, $ntz) = $function->($ctime, $ctz);
             } else {
                 ($ntime, $ntz) = $function->($atime, $atz);
@@ -179,10 +179,10 @@ sub git_shift {
             print "CommitDate: $ctimestr\n";
             print "         => $ntimestr\n";
 
-            if ($opt_c) {
+            if ($opt_commit_only) {
                 $ctime = $ntime;
                 $ctz   = $ntz;
-            } elsif ($opt_a) {
+            } elsif ($opt_author_only) {
                 $atime = $ntime;
                 $atz   = $ntz;
             } else {
@@ -195,7 +195,7 @@ sub git_shift {
         $last_rev = git_rewrite_commit($rev, $atime, $atz, $ctime, $ctz, \%commit_map);
     }
 
-    unless ($opt_n) {
+    unless ($opt_dryrun) {
         system 'git', 'reset', '--soft', $last_rev;
         exit($? >> 8) if $?;
     }
@@ -229,7 +229,7 @@ sub git_revparse {
 sub git_rewrite_commit {
     my($rev, $atime, $atz, $ctime, $ctz, $commit_map) = @_;
 
-    return if $opt_n;
+    return if $opt_dryrun;
 
     my $git_log = open3(my $in1, my $out1, '>&2',
                     'git', 'log', $rev . '^!', '--pretty=format:%P%x00%an%x00%ae%x00%cn%x00%ce%x00%B') or die $!;
