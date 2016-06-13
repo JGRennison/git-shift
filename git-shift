@@ -39,7 +39,7 @@ use Time::Local;
 use Time::Piece 1.16;	# timezone support is required
 use Time::Seconds;
 
-my($opt_v, $opt_dryrun, $opt_commit_only, $opt_author_only, $opt_skip_errors);
+my($opt_v, $opt_dryrun, $opt_commit_only, $opt_author_only, $opt_commit_both, $opt_author_both, $opt_skip_errors);
 my $exit_status = 0;
 
 sub usage {
@@ -48,6 +48,8 @@ usage: git shift [options] {[<time>][<timediff>][timezone]|<datetime>} <rev-list
 
     -v, --verbose         be verbose
     -n, --dry-run         dry run
+    -x, --author-both     change both times from author time (this is the default)
+    -z, --commit-both     change both times from commit time
     -a, --author-time     only change author time
     -c, --commit-time     only change commit time
     -k                    skip errors
@@ -87,6 +89,8 @@ sub main {
                "n|dry-run"     => \$opt_dryrun,
                "c|commit-time" => \$opt_commit_only,
                "a|author-time" => \$opt_author_only,
+               "z|commit-both" => \$opt_commit_both,
+               "x|author-both" => \$opt_author_both,
                "k"             => \$opt_skip_errors) or exit 64;
     pop @ARGV if @ARGV && $ARGV[$#ARGV] eq '--';
     $opt_v = 1  if $opt_dryrun;
@@ -96,10 +100,14 @@ sub main {
         exit 129;
     }
 
-    if ($opt_commit_only && $opt_author_only) {
-        print STDERR "$0: cannot use both -c and -a.\n";
+    my $num_time_opts_set = grep {$_} ($opt_commit_only, $opt_author_only, $opt_commit_both, $opt_author_both);
+    if ($num_time_opts_set > 1) {
+        print STDERR "$0: cannot use more than one of -c, -a, -z and -x.\n";
         usage();
         exit 129;
+    }
+    if ($num_time_opts_set == 0) {
+        $opt_author_both = 1;
     }
 
     my($timespec, @revspec) = @ARGV;
@@ -165,7 +173,7 @@ sub git_shift {
         my $changed;
         if (exists($revs{$rev})) {
             my($ntime, $ntz);
-            if ($opt_commit_only) {
+            if ($opt_commit_only || $opt_commit_both) {
                 ($ntime, $ntz) = $function->($ctime, $ctz);
             } else {
                 ($ntime, $ntz) = $function->($atime, $atz);
